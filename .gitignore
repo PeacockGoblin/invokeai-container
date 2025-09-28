@@ -1,0 +1,14 @@
+# Local environment and artifacts
+.env
+.DS_Store
+**/__pycache__/
+**/*.pyc
+
+# VS Code
+.vscode/
+
+# InvokeAI data (if you ever put it inside repo folder)
+invokeai/
+appdata/
+models/
+outputs/

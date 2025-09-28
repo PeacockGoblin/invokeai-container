@@ -1,0 +1,25 @@
+version: "3.9"
+services:
+  invokeai:
+    build: .
+    container_name: invokeai
+    ports:
+      - "${INVOKE_PORT}:9090"
+    environment:
+      INVOKEAI_ROOT: "${INVOKEAI_ROOT}"
+      GPU_DRIVER: "${GPU_DRIVER}"
+      CIVITAI_TOKEN: "${CIVITAI_TOKEN}"
+      CHECKPOINT_URL: "${CHECKPOINT_URL}"
+      LORA_URL_1: "${LORA_URL_1}"
+      LORA_URL_2: "${LORA_URL_2}"
+      LORA_URL_3: "${LORA_URL_3}"
+      VAE_URL: "${VAE_URL}"
+    volumes:
+      - "${INVOKEAI_ROOT}:${INVOKEAI_ROOT}"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: ["gpu"]
+    runtime: nvidia
+    restart: unless-stopped

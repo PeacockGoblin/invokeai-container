@@ -11,7 +11,7 @@
    - Fill `CHECKPOINT_URL`, 3x `LORA_URL_*`, and `VAE_URL` (optional)
 2. `docker compose up --build -d`
 3. Open `http://<host>:9090`
-4. In **Manage Models**, use **Scan Folder** if anything didn’t auto‑register:
+4. In **Manage Models**, use **Scan Folder** if anything didn’t auto-register:
    - `${INVOKEAI_ROOT}/models/checkpoints`
    - `${INVOKEAI_ROOT}/models/loras`
    - `${INVOKEAI_ROOT}/models/vae`

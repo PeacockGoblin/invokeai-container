@@ -16,6 +16,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Compute lowercase image path
+        run: |
+          echo "LC_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+      # $GITHUB_REPOSITORY is owner/repo; ,,: bash-lowercasing (valid here)
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -29,8 +34,8 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/invokeai-container:latest
-            ghcr.io/${{ github.repository_owner }}/invokeai-container:${{ github.sha }}
+            ${{ env.LC_IMAGE }}:latest
+            ${{ env.LC_IMAGE }}:${{ github.sha }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}

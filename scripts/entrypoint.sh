@@ -11,12 +11,19 @@ echo "GPU_DRIVER:    $GPU_DRIVER"
 echo "INVOKE_PORT:   $INVOKE_PORT"
 
 mkdir -p "$INVOKEAI_ROOT"
-chown -R "$(id -u)":"$(id -g)" "$INVOKEAI_ROOT" || true
+chown -R "$(id -u):$(id -g)" "$INVOKEAI_ROOT" || true
 
-# Model/LoRA/VAE downloads (non-fatal if a URL is bad)
+# --- Download models ---
 if ! bash /opt/invoke-bootstrap/download_models.sh; then
   echo "⚠️  Model download step had a warning; continuing."
 fi
 
-echo "Starting InvokeAI Web UI on 0.0.0.0:${INVOKE_PORT}..."
-exec invokeai-web --host 0.0.0.0 --port "${INVOKE_PORT}"
+# --- Launch InvokeAI ---
+echo "Starting InvokeAI Web UI..."
+
+# Newer versions ignore --host/--port; rely on envs instead
+export INVOKEAI_WEB_HOST=0.0.0.0
+export INVOKEAI_WEB_PORT="${INVOKE_PORT}"
+
+# Use exec to hand off control
+exec invokeai-web

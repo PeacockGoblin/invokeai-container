@@ -9,13 +9,8 @@ LORA_DIR="${INVOKEAI_ROOT}/models/loras"
 VAE_DIR="${INVOKEAI_ROOT}/models/vae"
 mkdir -p "$CHECKPOINT_DIR" "$LORA_DIR" "$VAE_DIR"
 
-# --- Colors ---
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
-
-# --- Counters ---
-success_count=0
-fail_count=0
-warn_count=0
+success_count=0; fail_count=0
 
 log() { printf "%b\n" "$*" >&2; }
 
@@ -35,7 +30,7 @@ uniq_stable() { awk '!seen[$0]++'; }
 
 gather_urls() {
   local kind="$1"
-  local upper="$kind" lower="${kind,,}"
+  local upper="$kind"
   local single="${upper}_URL" list="${upper}_URLS" prefix="${upper}_URL_"
   {
     [ -n "${!single-}" ] && printf '%s\n' "${!single}"
@@ -48,31 +43,27 @@ download_to_dir() {
   local url="$1" dest_dir="$2"
   [ -z "${url:-}" ] && return 0
 
-  local retries=5 delay=2
   log "${YELLOW}→ Downloading:${NC} $url"
+  local wget_flags=(--content-disposition --trust-server-names -c --tries=5 --waitretry=2 -P "$dest_dir")
 
-  local curl_opts=(-fL -C - -J -O --retry "$retries" --retry-delay "$delay" --output-dir "$dest_dir")
   if [ -n "${CIVITAI_TOKEN:-}" ]; then
-    curl_opts+=(-H "Authorization: Bearer ${CIVITAI_TOKEN}" -H "Accept: application/octet-stream")
-  fi
-
-  if curl "${curl_opts[@]}" "$url"; then
-    log "${GREEN}✓ Success${NC}"
-    ((success_count++))
+    if wget "${wget_flags[@]}" \
+        --header="Authorization: Bearer ${CIVITAI_TOKEN}" \
+        --header="Accept: application/octet-stream" \
+        "$url"; then
+      log "${GREEN}✓ Success${NC}"; ((success_count++))
+    else
+      code=$?; log "${RED}✗ wget failed (exit ${code})${NC}"; ((fail_count++)); return 1
+    fi
   else
-    code=$?
-    case "$code" in
-      22) log "${RED}✗ HTTP error (likely 404 or token issue)${NC}" ;;
-      28) log "${RED}✗ Timeout (network slow or Civitai down)${NC}" ;;
-      56) log "${RED}✗ Connection aborted mid-transfer${NC}" ;;
-      *)  log "${RED}✗ Unknown error code ${code}${NC}" ;;
-    esac
-    ((fail_count++))
-    return 1
+    if wget "${wget_flags[@]}" "$url"; then
+      log "${GREEN}✓ Success${NC}"; ((success_count++))
+    else
+      code=$?; log "${RED}✗ wget failed (exit ${code})${NC}"; ((fail_count++)); return 1
+    fi
   fi
 }
 
-# === Process all model types ===
 log "=== Downloading CHECKPOINTS ==="
 gather_urls "CHECKPOINT" | while IFS= read -r u; do download_to_dir "$u" "$CHECKPOINT_DIR"; done || true
 
@@ -82,10 +73,9 @@ gather_urls "LORA" | while IFS= read -r u; do download_to_dir "$u" "$LORA_DIR"; 
 log "=== Downloading VAEs ==="
 gather_urls "VAE" | while IFS= read -r u; do download_to_dir "$u" "$VAE_DIR"; done || true
 
-# --- Summary ---
 log ""
 if (( fail_count > 0 )); then
-  log "${YELLOW}⚠️  Download summary:${NC}  ${GREEN}${success_count} OK${NC}, ${RED}${fail_count} failed${NC}"
+  log "⚠️  Download summary: ${success_count} OK, ${fail_count} failed"
 else
   log "${GREEN}✓ All downloads complete (${success_count})${NC}"
 fi

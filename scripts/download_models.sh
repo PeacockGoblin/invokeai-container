@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ===================== config & dirs =====================
 : "${INVOKEAI_ROOT:?INVOKEAI_ROOT must be set}"
-: "${CIVITAI_TOKEN:-}"  # optional; needed for some Civitai assets
+: "${CIVITAI_TOKEN:-}"  # optional for public files, required for many Civitai assets
 
 CHECKPOINT_DIR="${INVOKEAI_ROOT}/models/checkpoints"
 LORA_DIR="${INVOKEAI_ROOT}/models/loras"
@@ -11,9 +11,8 @@ VAE_DIR="${INVOKEAI_ROOT}/models/vae"
 mkdir -p "$CHECKPOINT_DIR" "$LORA_DIR" "$VAE_DIR"
 
 # ===================== logging ===========================
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
+RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'; NC=$'\033[0m'
 success_count=0; fail_count=0
-
 log() { printf "%b\n" "$*" >&2; }
 
 # ===================== helpers ===========================
@@ -50,35 +49,52 @@ gather_urls() {
   } | uniq_stable
 }
 
+url_pct_decode() {
+  # percent-decode minimal set (%XX) without messing with plus signs
+  # shellcheck disable=SC2018,SC2019
+  python3 - "$1" <<'PY'
+import sys, urllib.parse
+print(urllib.parse.unquote(sys.argv[1]))
+PY
+}
+
+sanitize_name() {
+  # Keep alnum, dot, comma, underscore, dash, space → then collapse spaces to _
+  # No locale-dependent ranges.
+  printf '%s' "$1" | sed 's/[^A-Za-z0-9.,_ -]/_/g; s/[[:space:]]\{1,\}/_/g'
+}
+
 derive_filename() {
-  # Best-effort short filename from URL (works with Civitai’s long redirects)
+  # Best-effort short filename from URL; default extension if missing
   local url="$1" default_ext="${2:-safetensors}"
-  local fname
 
   # 1) Try filename from response-content-disposition=...filename="..."
-  fname="$(printf '%s' "$url" \
-    | sed -n 's/.*response-content-disposition=.*filename%3D%22\([^%]*\).*/\1/p' \
-    | sed 's/+/ /g; s/%20/ /g')"
+  local enc
+  enc="$(printf '%s' "$url" | sed -n 's/.*response-content-disposition=[^&]*filename%3D%22\([^%]*\).*/\1/p')"
+  local fname=""
+  if [ -n "${enc:-}" ]; then
+    fname="$(url_pct_decode "$enc" 2>/dev/null || true)"
+  fi
 
   # 2) Fallback: basename before '?'
-  [ -z "$fname" ] && fname="$(basename "${url%%\?*}")"
+  if [ -z "$fname" ]; then
+    fname="$(basename "${url%%\?*}")"
+  fi
 
-  # 3) If still nothing, synthesize
-  [ -z "$fname" ] && fname="model_$(date +%s).${default_ext}"
+  # 3) Fallback: synthesized
+  if [ -z "$fname" ] || [ "$fname" = "/" ] || [ "$fname" = "." ]; then
+    fname="model_$(date +%s).${default_ext}"
+  fi
 
-  # Ensure it has a reasonable extension
+  # Ensure extension is reasonable
   case "$fname" in
     *.safetensors|*.pt|*.bin|*.ckpt|*.vae) : ;;
     *) fname="${fname%.*}.${default_ext}" ;;
   esac
 
-  # Avoid filesystem-unfriendly characters
-  fname="$(printf '%s' "$fname" | tr -cd '[:alnum:].,_- ' | sed 's/[[:space:]]\{1,\}/_/g')"
-
-  # Clamp length (some filesystems choke on extreme lengths)
-  if [ "${#fname}" -gt 180 ]; then
-    fname="$(printf 'model_%s.%s' "$(date +%s)" "${fname##*.}")"
-  fi
+  # Sanitize & clamp length
+  fname="$(sanitize_name "$fname")"
+  [ "${#fname}" -gt 160 ] && fname="model_$(date +%s).${default_ext}"
 
   printf '%s' "$fname"
 }
@@ -88,7 +104,6 @@ curl_save() {
   local url="$1" out="$2"
   local opts=(-fL -C - --retry 5 --retry-delay 2 -o "$out")
   if [ -n "${CIVITAI_TOKEN:-}" ]; then
-    # Auth header applies to initial request; redirects usually don't need it
     opts+=(-H "Authorization: Bearer ${CIVITAI_TOKEN}" -H "Accept: application/octet-stream")
   fi
   curl "${opts[@]}" "$url"
@@ -101,13 +116,14 @@ download_to_dir() {
 
   local fname out
   fname="$(derive_filename "$url" "$default_ext")"
+  [ -z "$fname" ] && fname="model_$(date +%s).${default_ext}"
   out="${dest_dir}/${fname}"
 
   log "${YELLOW}→ Downloading:${NC} $url"
   log "   → Saving as: $out"
 
   if curl_save "$url" "$out"; then
-    # Basic sanity check: file exists and is >10MB (helps catch HTML error pages)
+    # sanity: >10MB
     if [ -s "$out" ] && [ "$(stat -c%s "$out")" -gt $((10*1024*1024)) ]; then
       log "${GREEN}✓ Success${NC}"
       ((success_count++))
@@ -142,7 +158,6 @@ done || true
 
 log "=== Downloading VAEs ==="
 gather_urls "VAE" | while IFS= read -r u; do
-  # Many VAEs are .safetensors too; adjust if you know the type
   download_to_dir "$u" "$VAE_DIR" "safetensors"
 done || true
 
